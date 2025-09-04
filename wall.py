@@ -1,11 +1,158 @@
-import requests
-API_KEY = "cqt_rQVQQDWDMVPXjkQTMT9XTWdMdpq4"
-WALLET_ADDRESS = "0xbc0663ef63add180609944c58ba7d4851890ca45"
-HEADERS = {"x-api-key": API_KEY}
+import streamlit as st
+import pandas as pd
+import altair as alt
+from datetime import datetime
+import openai
 
-# Get all transactions
-tx_url = "https://api.goldrushapi.com/v1/allchains/transactions/address/{wallet_address}"
-transactions = requests.get(tx_url, headers=HEADERS)
+# ---- SET YOUR API KEY ----
+openai.api_key = "sk-..."  # Replace with your API key securely or use environment variable
 
+st.title("Vision + Execution Tracker with AI Insight Summaries")
 
-print(transactions)
+# --- Initialize session state ---
+if "data" not in st.session_state:
+    st.session_state.data = pd.DataFrame(columns=[
+        "Task", "Insights Count", "Insight Value", "Products Shipped", "Weight",
+        "Score", "Vision Score", "Execution Score", "Vision-to-Execution Ratio", "Timestamp"
+    ])
+if "reflections" not in st.session_state:
+    st.session_state.reflections = []
+
+# --- Input Section ---
+st.header("Log a Session")
+task = st.text_input("Task Name / Description")
+insights_count = st.number_input("Number of Insights", min_value=0, step=1)
+insight_value = st.number_input("Value per Insight", min_value=0.0, step=0.1)
+products_shipped = st.number_input("Products Shipped (pages/functions/etc)", min_value=0, step=1)
+weight = st.number_input("Weight per Product", min_value=0.0, step=0.1)
+
+if st.button("Add Session"):
+    vision_score = insights_count * insight_value
+    execution_score = products_shipped * weight
+    total_score = vision_score + execution_score
+    ratio = vision_score / execution_score if execution_score != 0 else None
+    timestamp = datetime.now()
+    new_row = {
+        "Task": task,
+        "Insights Count": insights_count,
+        "Insight Value": insight_value,
+        "Products Shipped": products_shipped,
+        "Weight": weight,
+        "Score": total_score,
+        "Vision Score": vision_score,
+        "Execution Score": execution_score,
+        "Vision-to-Execution Ratio": ratio,
+        "Timestamp": timestamp
+    }
+    st.session_state.data = pd.concat([st.session_state.data, pd.DataFrame([new_row])], ignore_index=True)
+    st.success(f"Session added! Total Score: {total_score}, Ratio: {ratio}")
+
+# --- Session Log ---
+st.header("Session Log")
+st.dataframe(st.session_state.data)
+
+# --- Daily Summary ---
+if not st.session_state.data.empty:
+    total_vision = st.session_state.data["Vision Score"].sum()
+    total_execution = st.session_state.data["Execution Score"].sum()
+    total_score = st.session_state.data["Score"].sum()
+    avg_ratio = st.session_state.data["Vision-to-Execution Ratio"].mean()
+    st.subheader("Daily Summary")
+    st.write(f"Total Vision Score: {total_vision}")
+    st.write(f"Total Execution Score: {total_execution}")
+    st.write(f"Total Weighted Productivity Score: {total_score}")
+    st.write(f"Average Vision-to-Execution Ratio: {avg_ratio:.2f}")
+
+    # --- Charts ---
+    st.subheader("Vision vs Execution Charts")
+    vision_chart = alt.Chart(st.session_state.data).mark_bar(color='blue').encode(
+        x=alt.X('Task', sort=None),
+        y='Vision Score',
+        tooltip=['Task', 'Vision Score']
+    ).properties(title='Vision Score per Task')
+    
+    execution_chart = alt.Chart(st.session_state.data).mark_bar(color='green').encode(
+        x=alt.X('Task', sort=None),
+        y='Execution Score',
+        tooltip=['Task', 'Execution Score']
+    ).properties(title='Execution Score per Task')
+    
+    st.altair_chart(vision_chart, use_container_width=True)
+    st.altair_chart(execution_chart, use_container_width=True)
+    
+    line_chart = alt.Chart(st.session_state.data.reset_index()).transform_fold(
+        ['Vision Score', 'Execution Score'],
+        as_=['Type', 'Score']
+    ).mark_line(point=True).encode(
+        x='index:O',
+        y='Score:Q',
+        color='Type:N',
+        tooltip=['Task', 'Type', 'Score']
+    ).properties(title='Vision vs Execution Over Sessions')
+    
+    st.altair_chart(line_chart, use_container_width=True)
+    
+    ratio_chart = alt.Chart(st.session_state.data).mark_line(point=True, color='purple').encode(
+        x='Task',
+        y='Vision-to-Execution Ratio',
+        tooltip=['Task', 'Vision-to-Execution Ratio']
+    ).properties(title='Vision-to-Execution Ratio Over Sessions')
+    st.altair_chart(ratio_chart, use_container_width=True)
+
+    # --- 10-Hour Daily Progress ---
+    st.subheader("10-Hour Daily Progress")
+    max_hours = 10
+    progress_fraction = min(total_score / max_hours, 1.0)
+    completed_hours = int(progress_fraction * max_hours)
+    hour_display = ["🟩" if i < completed_hours else "⬜" for i in range(max_hours)]
+    st.write("Hourly Progress:", "".join(hour_display))
+    st.progress(progress_fraction)
+    st.write(f"Progress toward 10-hour goal: {progress_fraction*100:.1f}%")
+
+# --- End-of-Day Reflection ---
+st.header("End-of-Day Reflection")
+if progress_fraction >= 1.0:
+    st.subheader("Congratulations! You've completed your 10-hour goal.")
+    reflection = st.text_area("Write your reflection for today (lessons, patterns, improvements):")
+    if st.button("Save Reflection"):
+        if reflection.strip() != "":
+            st.session_state.reflections.append({
+                "Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "Reflection": reflection
+            })
+            st.success("Reflection saved!")
+        else:
+            st.warning("Please write something before saving.")
+    
+    # Display past reflections
+    if st.session_state.reflections:
+        st.subheader("Previous Reflections")
+        for r in st.session_state.reflections[::-1]:
+            st.markdown(f"**{r['Date']}**: {r['Reflection']}")
+else:
+    st.info("Complete your 10-hour goal to unlock the daily reflection session.")
+
+# --- AI-Powered Daily Insight Summary ---
+st.header("AI-Powered Daily Insight Summary")
+
+def generate_summary(insights_list):
+    if not insights_list:
+        return "No insights logged yet."
+    prompt = "Here are the insights from my productive sessions today:\n"
+    for i, insight in enumerate(insights_list, 1):
+        prompt += f"{i}. {insight}\n"
+    prompt += "\nPlease summarize these insights into a meaningful, concise paragraph highlighting patterns and key takeaways."
+    response = openai.Completion.create(
+        model="text-davinci-003",
+        prompt=prompt,
+        max_tokens=200,
+        temperature=0.7
+    )
+    return response.choices[0].text.strip()
+
+if not st.session_state.data.empty:
+    insights_list = st.session_state.data["Task"].tolist()  # Use Task column as raw insight
+    summary = generate_summary(insights_list)
+    st.markdown(summary)
+else:
+    st.info("Log some sessions first to generate an AI summary.")
