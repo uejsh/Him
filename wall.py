@@ -2,10 +2,13 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 from datetime import datetime
+import os
+from dotenv import load_dotenv
 import openai
 
 # ---- SET YOUR API KEY ----
-openai.api_key = "sk-..."  # Replace with your API key securely or use environment variable
+openai.api_key= os.getenv("OPENAI_API_KEY")
+# Replace with your API key securely or use environment variable
 
 st.title("Vision + Execution Tracker with AI Insight Summaries")
 
