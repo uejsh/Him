@@ -2,13 +2,10 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 from datetime import datetime
-import os
-import streamlit as st
 import openai
 
 # ---- SET YOUR API KEY ----
-openai.api_key= st.secrets["OPENAI_API_KEY"]
-# Replace with your API key securely or use environment variable
+openai.api_key = st.secrets["OPENAI_API_KEY"]
 
 st.title("Vision + Execution Tracker with AI Insight Summaries")
 
@@ -20,6 +17,8 @@ if "data" not in st.session_state:
     ])
 if "reflections" not in st.session_state:
     st.session_state.reflections = []
+if "ai_insights" not in st.session_state:
+    st.session_state.ai_insights = []
 
 # --- Input Section ---
 st.header("Log a Session")
@@ -59,7 +58,7 @@ if not st.session_state.data.empty:
     total_vision = st.session_state.data["Vision Score"].sum()
     total_execution = st.session_state.data["Execution Score"].sum()
     total_score = st.session_state.data["Score"].sum()
-    avg_ratio = st.session_state.data["Vision-to-Execution Ratio"].mean()
+    avg_ratio = st.session_state.data["Vision-to-Execution Ratio"].dropna().mean()
     st.subheader("Daily Summary")
     st.write(f"Total Vision Score: {total_vision}")
     st.write(f"Total Execution Score: {total_execution}")
@@ -83,19 +82,25 @@ if not st.session_state.data.empty:
     st.altair_chart(vision_chart, use_container_width=True)
     st.altair_chart(execution_chart, use_container_width=True)
     
-    line_chart = alt.Chart(st.session_state.data.reset_index()).transform_fold(
-        ['Vision Score', 'Execution Score'],
-        as_=['Type', 'Score']
-    ).mark_line(point=True).encode(
+    # Line chart for Vision vs Execution over sessions
+    df_line = st.session_state.data.reset_index().melt(
+        id_vars=['index', 'Task'],
+        value_vars=['Vision Score', 'Execution Score'],
+        var_name='Type',
+        value_name='Score'
+    )
+    line_chart = alt.Chart(df_line).mark_line(point=True).encode(
         x='index:O',
         y='Score:Q',
         color='Type:N',
         tooltip=['Task', 'Type', 'Score']
     ).properties(title='Vision vs Execution Over Sessions')
-    
     st.altair_chart(line_chart, use_container_width=True)
     
-    ratio_chart = alt.Chart(st.session_state.data).mark_line(point=True, color='purple').encode(
+    # Ratio chart
+    df_ratio = st.session_state.data.copy()
+    df_ratio = df_ratio[df_ratio["Vision-to-Execution Ratio"].notna()]
+    ratio_chart = alt.Chart(df_ratio).mark_line(point=True, color='purple').encode(
         x='Task',
         y='Vision-to-Execution Ratio',
         tooltip=['Task', 'Vision-to-Execution Ratio']
@@ -106,6 +111,7 @@ if not st.session_state.data.empty:
     st.subheader("10-Hour Daily Progress")
     max_hours = 10
     progress_fraction = min(total_score / max_hours, 1.0)
+    st.session_state.progress_fraction = progress_fraction
     completed_hours = int(progress_fraction * max_hours)
     hour_display = ["🟩" if i < completed_hours else "⬜" for i in range(max_hours)]
     st.write("Hourly Progress:", "".join(hour_display))
@@ -113,7 +119,6 @@ if not st.session_state.data.empty:
     st.write(f"Progress toward 10-hour goal: {progress_fraction*100:.1f}%")
 
 # --- End-of-Day Reflection ---
-
 st.header("End-of-Day Reflection")
 progress_fraction = st.session_state.get("progress_fraction", 0.0)
 if progress_fraction >= 1.0:
@@ -137,27 +142,39 @@ if progress_fraction >= 1.0:
 else:
     st.info("Complete your 10-hour goal to unlock the daily reflection session.")
 
-# --- AI-Powered Daily Insight Summary ---
-st.header("AI-Powered Daily Insight Summary")
+# --- Insight Logging with AI Summary ---
+st.header("Log Your Insights for AI Feedback")
 
-def generate_summary(insights_list):
-    if not insights_list:
-        return "No insights logged yet."
-    prompt = "Here are the insights from my productive sessions today:\n"
-    for i, insight in enumerate(insights_list, 1):
-        prompt += f"{i}. {insight}\n"
-    prompt += "\nPlease summarize these insights into a meaningful, concise paragraph highlighting patterns and key takeaways."
-    response = openai.Completion.create(
-        model="text-davinci-003",
-        prompt=prompt,
-        max_tokens=200,
-        temperature=0.7
-    )
-    return response.choices[0].text.strip()
+new_insights = st.text_area("Enter your insights (one per line)")
 
-if not st.session_state.data.empty:
-    insights_list = st.session_state.data["Task"].tolist()  # Use Task column as raw insight
-    summary = generate_summary(insights_list)
-    st.markdown(summary)
-else:
-    st.info("Log some sessions first to generate an AI summary.")
+if st.button("Submit Insights"):
+    if new_insights.strip() != "":
+        insights_list = [line.strip() for line in new_insights.split("\n") if line.strip()]
+        st.session_state.ai_insights.extend(insights_list)
+
+        # --- Generate AI summary + comment ---
+        prompt = "Here are the insights I logged today:\n"
+        for i, insight in enumerate(insights_list, 1):
+            prompt += f"{i}. {insight}\n"
+        prompt += "\nPlease summarize these insights into a concise paragraph and provide an actionable comment for improvement or patterns noticed."
+
+        try:
+            response = openai.Completion.create(
+                model="text-davinci-003",
+                prompt=prompt,
+                max_tokens=250,
+                temperature=0.7
+            )
+            ai_output = response.choices[0].text.strip()
+            st.subheader("AI Summary & Comment")
+            st.markdown(ai_output)
+        except Exception as e:
+            st.error(f"OpenAI API error: {e}")
+    else:
+        st.warning("Please enter at least one insight before submitting.")
+
+# --- Display all logged insights ---
+if st.session_state.ai_insights:
+    st.subheader("All Logged Insights")
+    for idx, insight in enumerate(st.session_state.ai_insights[::-1], 1):
+        st.markdown(f"{idx}. {insight}")
