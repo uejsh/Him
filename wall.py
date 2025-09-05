@@ -113,7 +113,9 @@ if not st.session_state.data.empty:
     st.write(f"Progress toward 10-hour goal: {progress_fraction*100:.1f}%")
 
 # --- End-of-Day Reflection ---
+
 st.header("End-of-Day Reflection")
+progress_fraction = st.session_state.get("progress_fraction", 0.0)
 if progress_fraction >= 1.0:
     st.subheader("Congratulations! You've completed your 10-hour goal.")
     reflection = st.text_area("Write your reflection for today (lessons, patterns, improvements):")
