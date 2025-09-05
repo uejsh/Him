@@ -169,6 +169,8 @@ if st.button("Submit Insights"):
     temperature=0.7
 )
 ai_output = response.choices[0].message.content.strip()
+except Exception as e:
+    ai_output = f"Error generating summary: {e}"
             st.subheader("AI Summary & Comment")
             st.markdown(ai_output)
         except Exception as e:
