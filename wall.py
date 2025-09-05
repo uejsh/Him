@@ -159,13 +159,16 @@ if st.button("Submit Insights"):
         prompt += "\nPlease summarize these insights into a concise paragraph and provide an actionable comment for improvement or patterns noticed."
 
         try:
-            response = openai.Completion.create(
-                model="text-davinci-003",
-                prompt=prompt,
-                max_tokens=250,
-                temperature=0.7
-            )
-            ai_output = response.choices[0].text.strip()
+            response = openai.ChatCompletion.create(
+    model="gpt-3.5-turbo",
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": prompt}
+    ],
+    max_tokens=250,
+    temperature=0.7
+)
+ai_output = response.choices[0].message.content.strip()
             st.subheader("AI Summary & Comment")
             st.markdown(ai_output)
         except Exception as e:
